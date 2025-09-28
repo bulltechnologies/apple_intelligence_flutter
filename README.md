@@ -4,6 +4,8 @@ Flutter bindings for Apple’s on-device Foundation Models introduced with Apple
 
 - 🚀 Send prompts to the system language model directly from Dart.
 - 🌊 Stream partial responses as the model generates tokens.
+- 🎙️ Transcribe local audio files (MP3, WAV, etc.) to text using on-device speech recognition.
+- 🌐 Translate text between languages using Apple's Translation framework.
 - 🧠 Provide instructions/context to steer model behaviour, entirely offline.
 - 🛡️ Robust availability checks and structured error reporting.
 - 📱 Shipping example app and unit tests.
@@ -67,6 +69,18 @@ await for (final chunk in client.streamPrompt(prompt: 'Draft a friendly reminder
   }
 }
 
+// Need to cancel mid-stream? Grab a session handle.
+final session = client.streamPromptSession(prompt: 'Write a casual check-in message.');
+final subscription = session.stream.listen((chunk) {
+  debugPrint('Partial: ${chunk.delta ?? chunk.cumulativeText}');
+});
+
+// Cancel after 2 seconds (for example, user navigates away).
+await Future<void>.delayed(const Duration(seconds: 2));
+await session.stop();
+await subscription.cancel();
+await session.done; // Future completes once the stream shuts down cleanly.
+
 // 3. Reuse the service façade when you prefer structured responses.
 final service = TextProcessingService(client: client);
 final serviceResponse = await service.processText(
@@ -85,7 +99,42 @@ if (serviceResponse.success) {
 - **Instructions**: Call `initialize(instructions: ...)` once to describe the assistant’s behaviour. The same instruction set is reused for subsequent prompts.
 - **Prompt**: Use `sendPrompt(prompt: ...)` with optional `context` to prepend structured guidance (e.g. UI state, safety rails).
 - **Responses**: Successful calls return `TextProcessingResponse` with `processedText` and metadata containing the latest availability snapshot.
-- **Streaming**: Use `AppleIntelligenceClient.streamPrompt` (or `TextProcessingService.streamText`) to receive `AppleIntelligenceStreamChunk` updates with cumulative and delta text. The last chunk is flagged with `isFinal` and includes the fully aggregated output.
+- **Streaming**: Use `AppleIntelligenceClient.streamPrompt` (or `TextProcessingService.streamText`) to receive `AppleIntelligenceStreamChunk` updates with cumulative and delta text. Reach for `streamPromptSession` / `streamTextSession` when you need to cancel mid-flight via `AppleIntelligenceStreamSession.stop()`.
+
+## Speech-to-text
+
+Transcribe an audio file with the `SpeechToTextService`:
+
+```dart
+final speechService = SpeechToTextService();
+final transcription = await speechService.transcribeAudioFile(
+  filePath: '/path/to/recording.mp3',
+  locale: 'en-US', // optional; defaults to system locale
+  requiresOnDeviceRecognition: true, // optional
+);
+
+debugPrint(transcription.text);
+for (final segment in transcription.segments) {
+  debugPrint('${segment.substring} @ ${segment.timestamp}s');
+}
+```
+
+> **Note:** Add `NSSpeechRecognitionUsageDescription` to your iOS target’s Info.plist. The Speech framework requires iOS 15+ for this plugin implementation.
+
+## Translation
+
+Translate text on-device with the `TranslationService`:
+
+```dart
+final translationService = TranslationService();
+final translation = await translationService.translate(
+  text: 'Hello world',
+  sourceLanguage: 'en',
+  targetLanguage: 'es',
+);
+
+debugPrint(translation.targetText); // "Hola mundo"
+```
 
 ## Availability and errors
 

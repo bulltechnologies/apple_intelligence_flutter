@@ -161,4 +161,53 @@ void main() {
     expect(chunks.last.isFinal, isTrue);
     expect(chunks.last.cumulativeText, 'Hello world');
   });
+
+  test('streamPromptSession can be stopped early', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+
+    const MethodCodec codec = StandardMethodCodec();
+    var cancelCalled = false;
+
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMessageHandler(
+      'apple_intelligence_flutter/stream',
+      (ByteData? message) async {
+        final MethodCall call = codec.decodeMethodCall(message);
+        if (call.method == 'listen') {
+          Future.microtask(() {
+            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+                .handlePlatformMessage(
+              'apple_intelligence_flutter/stream',
+              codec.encodeSuccessEnvelope({
+                'done': false,
+                'cumulativeText': 'Hello',
+              }),
+              (_) {},
+            );
+          });
+          return codec.encodeSuccessEnvelope(null);
+        } else if (call.method == 'cancel') {
+          cancelCalled = true;
+          return codec.encodeSuccessEnvelope(null);
+        }
+        return null;
+      },
+    );
+
+    final session =
+        AppleIntelligenceClient.instance.streamPromptSession(prompt: 'Hello');
+
+    final captured = <AppleIntelligenceStreamChunk>[];
+    final subscription = session.stream.listen(captured.add);
+
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+
+    await session.stop();
+    await session.done;
+    await subscription.cancel();
+
+    expect(cancelCalled, isTrue);
+    expect(captured, hasLength(1));
+    expect(captured.single.cumulativeText, 'Hello');
+  });
 }

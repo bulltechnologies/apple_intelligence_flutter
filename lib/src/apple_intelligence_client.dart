@@ -222,32 +222,66 @@ class AppleIntelligenceClient {
     }
   }
 
-  /// Continuously receives generated text for a prompt as Apple Intelligence streams tokens.
+  /// Creates a cancellable streaming session for a prompt.
   ///
-  /// The returned stream emits [AppleIntelligenceStreamChunk] instances with cumulative
-  /// text, delta updates, and raw JSON payloads from the native `GeneratedContent` type.
-  /// The final event has [AppleIntelligenceStreamChunk.isFinal] set to `true`.
-  Stream<AppleIntelligenceStreamChunk> streamPrompt({
+  /// The returned [AppleIntelligenceStreamSession] exposes a [Stream] of
+  /// [AppleIntelligenceStreamChunk] updates and a [AppleIntelligenceStreamSession.stop]
+  /// method that aborts the native request immediately.
+  AppleIntelligenceStreamSession streamPromptSession({
     required String prompt,
     String? context,
   }) {
     if (!_isPlatformSupported) {
-      return Stream<AppleIntelligenceStreamChunk>.error(
-        const AppleIntelligenceException(
-          code: 'unsupported_platform',
-          message:
-              'Apple Intelligence is currently available on iOS devices only.',
-        ),
+      final controller = StreamController<AppleIntelligenceStreamChunk>();
+      controller.onListen = () {
+        controller.addError(
+          const AppleIntelligenceException(
+            code: 'unsupported_platform',
+            message:
+                'Apple Intelligence is currently available on iOS devices only.',
+          ),
+        );
+        controller.close();
+      };
+      controller.onCancel = () async {
+        if (!controller.isClosed) {
+          await controller.close();
+        }
+      };
+      return AppleIntelligenceStreamSession._(
+        controller,
+        () async {
+          if (!controller.isClosed) {
+            await controller.close();
+          }
+        },
       );
     }
 
     final sanitizedPrompt = prompt.trim();
     if (sanitizedPrompt.isEmpty) {
-      return Stream<AppleIntelligenceStreamChunk>.error(
-        const AppleIntelligenceException(
-          code: 'empty_prompt',
-          message: 'Prompt must not be empty.',
-        ),
+      final controller = StreamController<AppleIntelligenceStreamChunk>();
+      controller.onListen = () {
+        controller.addError(
+          const AppleIntelligenceException(
+            code: 'empty_prompt',
+            message: 'Prompt must not be empty.',
+          ),
+        );
+        controller.close();
+      };
+      controller.onCancel = () async {
+        if (!controller.isClosed) {
+          await controller.close();
+        }
+      };
+      return AppleIntelligenceStreamSession._(
+        controller,
+        () async {
+          if (!controller.isClosed) {
+            await controller.close();
+          }
+        },
       );
     }
 
@@ -258,11 +292,24 @@ class AppleIntelligenceClient {
         'context': sanitizedContext,
     };
 
-    StreamSubscription<dynamic>? subscription;
     final controller = StreamController<AppleIntelligenceStreamChunk>();
+    StreamSubscription<dynamic>? subscription;
+    String previousText = '';
+    var hasShutdown = false;
+
+    Future<void> shutdown() async {
+      if (hasShutdown) {
+        return;
+      }
+      hasShutdown = true;
+      await subscription?.cancel();
+      subscription = null;
+      if (!controller.isClosed) {
+        await controller.close();
+      }
+    }
 
     controller.onListen = () {
-      String previousText = '';
       subscription = _streamChannel.receiveBroadcastStream(args).listen(
         (event) {
           final chunk = AppleIntelligenceStreamChunk.fromNativeEvent(
@@ -278,37 +325,50 @@ class AppleIntelligenceClient {
           }
 
           if (chunk.isFinal) {
-            subscription?.cancel();
-            subscription = null;
-            if (!controller.isClosed) {
-              controller.close();
-            }
+            // Close the session once the final payload has been delivered.
+            unawaited(shutdown());
           }
         },
         onError: (error) {
           if (!controller.isClosed) {
             controller.addError(_mapStreamError(error));
-            controller.close();
           }
-          subscription?.cancel();
-          subscription = null;
+          unawaited(shutdown());
         },
         onDone: () {
-          subscription = null;
-          if (!controller.isClosed) {
-            controller.close();
-          }
+          unawaited(shutdown());
         },
         cancelOnError: false,
       );
     };
 
     controller.onCancel = () async {
-      await subscription?.cancel();
-      subscription = null;
+      await shutdown();
     };
 
-    return controller.stream;
+    return AppleIntelligenceStreamSession._(
+      controller,
+      () async {
+        await shutdown();
+      },
+    );
+  }
+
+  /// Continuously receives generated text for a prompt as Apple Intelligence streams tokens.
+  ///
+  /// Prefer [streamPromptSession] when you need a handle to cancel the request explicitly.
+  /// The returned stream emits [AppleIntelligenceStreamChunk] instances with cumulative
+  /// text, delta updates, and raw JSON payloads from the native `GeneratedContent` type.
+  /// The final event has [AppleIntelligenceStreamChunk.isFinal] set to `true`.
+  Stream<AppleIntelligenceStreamChunk> streamPrompt({
+    required String prompt,
+    String? context,
+  }) {
+    final session = streamPromptSession(
+      prompt: prompt,
+      context: context,
+    );
+    return session.stream;
   }
 
   /// Convenience helper that emits only the cumulative text for each streamed chunk.
@@ -345,6 +405,38 @@ class AppleIntelligenceClient {
 
     return error;
   }
+}
+
+/// Represents an active streaming session that can be canceled on-demand.
+class AppleIntelligenceStreamSession {
+  AppleIntelligenceStreamSession._(
+    this._controller,
+    this._stopCallback,
+  );
+
+  final StreamController<AppleIntelligenceStreamChunk> _controller;
+  final Future<void> Function() _stopCallback;
+  bool _stopInvoked = false;
+
+  /// Stream of incremental chunks emitted by Apple Intelligence.
+  Stream<AppleIntelligenceStreamChunk> get stream => _controller.stream;
+
+  /// Indicates whether the session is still receiving updates.
+  bool get isActive => !_controller.isClosed && !_stopInvoked;
+
+  /// Cancels the underlying native request and closes the stream.
+  Future<void> stop() async {
+    if (_stopInvoked || _controller.isClosed) {
+      _stopInvoked = true;
+      return;
+    }
+
+    _stopInvoked = true;
+    await _stopCallback();
+  }
+
+  /// Completes when the stream has finished emitting.
+  Future<void> get done => _controller.done;
 }
 
 /// Represents a streaming update produced by Apple Intelligence.

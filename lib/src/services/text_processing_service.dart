@@ -41,12 +41,18 @@ class TextProcessingService {
     }
   }
 
-  /// Stream incremental updates as Apple Intelligence generates the response.
-  Stream<AppleIntelligenceStreamChunk> streamText(
+  /// Create a streaming session that can be canceled explicitly.
+  AppleIntelligenceStreamSession streamTextSession(
       TextProcessingRequest request) {
-    return _client.streamPrompt(
+    return _client.streamPromptSession(
       prompt: request.text,
       context: request.context,
     );
+  }
+
+  /// Stream incremental updates as Apple Intelligence generates the response.
+  Stream<AppleIntelligenceStreamChunk> streamText(
+      TextProcessingRequest request) {
+    return streamTextSession(request).stream;
   }
 }

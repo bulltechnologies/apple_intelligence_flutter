@@ -13,7 +13,7 @@ Pod::Spec.new do |s|
   s.swift_version    = '5.10'
   s.platform         = :ios, '26.0'
   s.dependency 'Flutter'
-  s.frameworks       = 'FoundationModels'
+  s.frameworks       = ['FoundationModels', 'Speech', 'Translation']
   s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES' }
   s.user_target_xcconfig = { 'DEFINES_MODULE' => 'YES' }
 end

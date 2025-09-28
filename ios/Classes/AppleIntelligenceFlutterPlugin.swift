@@ -1,6 +1,7 @@
 import Flutter
 import Foundation
 import FoundationModels
+import Translation
 
 /// Flutter plugin that bridges Apple Intelligence Foundation Models to Dart.
 public class AppleIntelligenceFlutterPlugin: NSObject, FlutterPlugin {
@@ -32,6 +33,16 @@ public class AppleIntelligenceFlutterPlugin: NSObject, FlutterPlugin {
             handleIsAvailable(result: result)
         case "sendPrompt":
             handleSendPrompt(call.arguments, result: result)
+        case "transcribeAudio":
+            handleTranscribeAudio(call.arguments, result: result)
+        case "translateText":
+            handleTranslateText(call.arguments, result: result)
+        case "translationSupportedLanguages":
+            handleTranslationSupportedLanguages(result: result)
+        case "translationAvailability":
+            handleTranslationAvailability(call.arguments, result: result)
+        case "prepareTranslation":
+            handlePrepareTranslation(call.arguments, result: result)
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -106,6 +117,167 @@ public class AppleIntelligenceFlutterPlugin: NSObject, FlutterPlugin {
         }
     }
 
+    private func handleTranscribeAudio(_ arguments: Any?, result: @escaping FlutterResult) {
+        guard #available(iOS 15.0, *) else {
+            result(FlutterError(code: "unsupported_platform", message: "Speech recognition requires iOS 15.0 or newer.", details: nil))
+            return
+        }
+
+#if canImport(Speech)
+        SpeechTranscriptionManager.handleTranscribeAudio(
+            arguments,
+            result: result,
+            errorMapper: { [weak self] error in
+                guard let self else {
+                    return FlutterError(
+                        code: "apple_intelligence_error",
+                        message: error.localizedDescription,
+                        details: nil
+                    )
+                }
+                return self.makeFlutterError(from: error)
+            }
+        )
+#else
+        result(FlutterError(code: "unsupported_platform", message: "Speech framework unavailable on this platform.", details: nil))
+#endif
+    }
+
+    private func handleTranslateText(_ arguments: Any?, result: @escaping FlutterResult) {
+        guard #available(iOS 26.0, *) else {
+            result(unsupportedPlatformError())
+            return
+        }
+
+        guard
+            let params = arguments as? [String: Any],
+            let text = params["text"] as? String,
+            let sourceIdentifier = params["sourceLanguage"] as? String,
+            let targetIdentifier = params["targetLanguage"] as? String
+        else {
+            result(FlutterError(
+                code: "invalid_arguments",
+                message: "Parameters 'text', 'sourceLanguage', and 'targetLanguage' are required.",
+                details: nil
+            ))
+            return
+        }
+
+        let clientIdentifier = params["clientIdentifier"] as? String
+
+        Task {
+            do {
+                let sourceLanguage = try makeLanguage(from: sourceIdentifier)
+                let targetLanguage = try makeLanguage(from: targetIdentifier)
+                let payload = try await TranslationManager.shared.translate(
+                    text: text,
+                    source: sourceLanguage,
+                    target: targetLanguage,
+                    clientIdentifier: clientIdentifier
+                )
+                DispatchQueue.main.async {
+                    result(payload.asDictionary())
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    result(self.makeFlutterError(from: error))
+                }
+            }
+        }
+    }
+
+    private func handleTranslationSupportedLanguages(result: @escaping FlutterResult) {
+        guard #available(iOS 26.0, *) else {
+            result(unsupportedPlatformError())
+            return
+        }
+
+        Task {
+            let identifiers = await TranslationManager.shared.supportedLanguageIdentifiers()
+            DispatchQueue.main.async {
+                result(identifiers)
+            }
+        }
+    }
+
+    private func handleTranslationAvailability(_ arguments: Any?, result: @escaping FlutterResult) {
+        guard #available(iOS 26.0, *) else {
+            result(unsupportedPlatformError())
+            return
+        }
+
+        guard
+            let params = arguments as? [String: Any],
+            let sourceIdentifier = params["sourceLanguage"] as? String
+        else {
+            result(FlutterError(
+                code: "invalid_arguments",
+                message: "Parameter 'sourceLanguage' is required.",
+                details: nil
+            ))
+            return
+        }
+
+        let targetIdentifier = params["targetLanguage"] as? String
+
+        Task {
+            do {
+                let sourceLanguage = try makeLanguage(from: sourceIdentifier)
+                let targetLanguage = try makeOptionalLanguage(from: targetIdentifier)
+                let payload = await TranslationManager.shared.availabilityStatus(
+                    source: sourceLanguage,
+                    target: targetLanguage
+                )
+                DispatchQueue.main.async {
+                    result(payload.asDictionary())
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    result(self.makeFlutterError(from: error))
+                }
+            }
+        }
+    }
+
+    private func handlePrepareTranslation(_ arguments: Any?, result: @escaping FlutterResult) {
+        guard #available(iOS 26.0, *) else {
+            result(unsupportedPlatformError())
+            return
+        }
+
+        guard
+            let params = arguments as? [String: Any],
+            let sourceIdentifier = params["sourceLanguage"] as? String
+        else {
+            result(FlutterError(
+                code: "invalid_arguments",
+                message: "Parameter 'sourceLanguage' is required.",
+                details: nil
+            ))
+            return
+        }
+
+        let targetIdentifier = params["targetLanguage"] as? String
+
+        Task {
+            do {
+                let sourceLanguage = try makeLanguage(from: sourceIdentifier)
+                let targetLanguage = try makeOptionalLanguage(from: targetIdentifier)
+                try await TranslationManager.shared.prepareTranslation(
+                    source: sourceLanguage,
+                    target: targetLanguage
+                )
+                DispatchQueue.main.async {
+                    result(true)
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    result(self.makeFlutterError(from: error))
+                }
+            }
+        }
+    }
+
     @available(iOS 26.0, *)
     fileprivate func resolveSessionManager() -> AppleIntelligenceSessionManager {
         if let manager = sessionManager as? AppleIntelligenceSessionManager {
@@ -146,6 +318,22 @@ public class AppleIntelligenceFlutterPlugin: NSObject, FlutterPlugin {
                 code: "generation_error",
                 message: generationError.errorDescription ?? "Apple Intelligence failed to generate a response.",
                 details: details
+            )
+        }
+
+        if #available(iOS 26.0, *), let translationManagerError = error as? TranslationManagerError {
+            return FlutterError(
+                code: translationManagerError.code,
+                message: translationManagerError.errorDescription ?? "Translation failed.",
+                details: translationManagerError.errorDetails
+            )
+        }
+
+        if #available(iOS 26.0, *), let translationError = error as? TranslationError {
+            return FlutterError(
+                code: translationErrorCode(from: translationError),
+                message: translationError.localizedDescription,
+                details: translationErrorDetails(from: translationError)
             )
         }
 

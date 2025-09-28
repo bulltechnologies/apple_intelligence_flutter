@@ -198,6 +198,26 @@ Remember to clear handlers in `tearDown()` to avoid leakage between tests.
 
 ## 11. Example app walkthrough
 
+## 12. Speech-to-text from local files
+
+Use the `SpeechToTextService` to convert audio recordings (MP3/WAV/M4A) into text. This relies on Apple’s Speech framework and requires iOS 15 or newer.
+
+```dart
+final speechService = SpeechToTextService();
+final result = await speechService.transcribeAudioFile(
+  filePath: audioFile.path,
+  locale: 'en-US',
+  requiresOnDeviceRecognition: true,
+);
+
+print('Transcription: ${result.text}');
+for (final segment in result.segments) {
+  print('${segment.substring} @ ${segment.timestamp}s');
+}
+```
+
+**Permissions:** Add `NSSpeechRecognitionUsageDescription` (and optionally `NSMicrophoneUsageDescription` if you plan to capture live audio) to your target’s Info.plist.
+
 The sample in `example/lib/main.dart` demonstrates:
 
 1. Performing initialization inside `initState()`.

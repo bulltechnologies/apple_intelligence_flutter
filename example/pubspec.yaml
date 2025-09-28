@@ -10,6 +10,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  file_picker: ^5.5.0
   apple_intelligence_flutter:
     path: ../
 
