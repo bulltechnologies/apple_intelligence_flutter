@@ -51,7 +51,7 @@ public class AppleIntelligenceFlutterPlugin: NSObject, FlutterPlugin {
     /// Handles initialization and instructions configuration.
     private func handleInitialize(_ arguments: Any?, result: @escaping FlutterResult) {
         guard #available(iOS 26.0, *) else {
-            result(unsupportedPlatformPayload())
+            result(unsupportedFoundationModelsPayload())
             return
         }
 
@@ -75,7 +75,7 @@ public class AppleIntelligenceFlutterPlugin: NSObject, FlutterPlugin {
     /// Returns the current availability snapshot to Dart.
     private func handleIsAvailable(result: @escaping FlutterResult) {
         guard #available(iOS 26.0, *) else {
-            result(unsupportedPlatformPayload())
+            result(unsupportedFoundationModelsPayload())
             return
         }
 
@@ -91,7 +91,7 @@ public class AppleIntelligenceFlutterPlugin: NSObject, FlutterPlugin {
     /// Performs generation using the managed `LanguageModelSession`.
     private func handleSendPrompt(_ arguments: Any?, result: @escaping FlutterResult) {
         guard #available(iOS 26.0, *) else {
-            result(unsupportedPlatformError())
+            result(unsupportedFoundationModelsError())
             return
         }
 
@@ -145,7 +145,7 @@ public class AppleIntelligenceFlutterPlugin: NSObject, FlutterPlugin {
 
     private func handleTranslateText(_ arguments: Any?, result: @escaping FlutterResult) {
         guard #available(iOS 26.0, *) else {
-            result(unsupportedPlatformError())
+            result(unsupportedTranslationError())
             return
         }
 
@@ -164,45 +164,27 @@ public class AppleIntelligenceFlutterPlugin: NSObject, FlutterPlugin {
         }
 
         let clientIdentifier = params["clientIdentifier"] as? String
-
-        Task {
-            do {
-                let sourceLanguage = try makeLanguage(from: sourceIdentifier)
-                let targetLanguage = try makeLanguage(from: targetIdentifier)
-                let payload = try await TranslationManager.shared.translate(
-                    text: text,
-                    source: sourceLanguage,
-                    target: targetLanguage,
-                    clientIdentifier: clientIdentifier
-                )
-                DispatchQueue.main.async {
-                    result(payload.asDictionary())
-                }
-            } catch {
-                DispatchQueue.main.async {
-                    result(self.makeFlutterError(from: error))
-                }
-            }
-        }
+        handleTranslateTextAvailable(
+            text: text,
+            sourceIdentifier: sourceIdentifier,
+            targetIdentifier: targetIdentifier,
+            clientIdentifier: clientIdentifier,
+            result: result
+        )
     }
 
     private func handleTranslationSupportedLanguages(result: @escaping FlutterResult) {
         guard #available(iOS 26.0, *) else {
-            result(unsupportedPlatformError())
+            result(unsupportedTranslationError())
             return
         }
 
-        Task {
-            let identifiers = await TranslationManager.shared.supportedLanguageIdentifiers()
-            DispatchQueue.main.async {
-                result(identifiers)
-            }
-        }
+        handleTranslationSupportedLanguagesAvailable(result: result)
     }
 
     private func handleTranslationAvailability(_ arguments: Any?, result: @escaping FlutterResult) {
         guard #available(iOS 26.0, *) else {
-            result(unsupportedPlatformError())
+            result(unsupportedTranslationError())
             return
         }
 
@@ -219,29 +201,16 @@ public class AppleIntelligenceFlutterPlugin: NSObject, FlutterPlugin {
         }
 
         let targetIdentifier = params["targetLanguage"] as? String
-
-        Task {
-            do {
-                let sourceLanguage = try makeLanguage(from: sourceIdentifier)
-                let targetLanguage = try makeOptionalLanguage(from: targetIdentifier)
-                let payload = await TranslationManager.shared.availabilityStatus(
-                    source: sourceLanguage,
-                    target: targetLanguage
-                )
-                DispatchQueue.main.async {
-                    result(payload.asDictionary())
-                }
-            } catch {
-                DispatchQueue.main.async {
-                    result(self.makeFlutterError(from: error))
-                }
-            }
-        }
+        handleTranslationAvailabilityAvailable(
+            sourceIdentifier: sourceIdentifier,
+            targetIdentifier: targetIdentifier,
+            result: result
+        )
     }
 
     private func handlePrepareTranslation(_ arguments: Any?, result: @escaping FlutterResult) {
         guard #available(iOS 26.0, *) else {
-            result(unsupportedPlatformError())
+            result(unsupportedTranslationError())
             return
         }
 
@@ -258,24 +227,11 @@ public class AppleIntelligenceFlutterPlugin: NSObject, FlutterPlugin {
         }
 
         let targetIdentifier = params["targetLanguage"] as? String
-
-        Task {
-            do {
-                let sourceLanguage = try makeLanguage(from: sourceIdentifier)
-                let targetLanguage = try makeOptionalLanguage(from: targetIdentifier)
-                try await TranslationManager.shared.prepareTranslation(
-                    source: sourceLanguage,
-                    target: targetLanguage
-                )
-                DispatchQueue.main.async {
-                    result(true)
-                }
-            } catch {
-                DispatchQueue.main.async {
-                    result(self.makeFlutterError(from: error))
-                }
-            }
-        }
+        handlePrepareTranslationAvailable(
+            sourceIdentifier: sourceIdentifier,
+            targetIdentifier: targetIdentifier,
+            result: result
+        )
     }
 
     @available(iOS 26.0, *)
@@ -289,7 +245,7 @@ public class AppleIntelligenceFlutterPlugin: NSObject, FlutterPlugin {
     }
 
     /// Convenience payload used when the running platform cannot host Apple Intelligence.
-    private func unsupportedPlatformPayload() -> [String: Any] {
+    private func unsupportedFoundationModelsPayload() -> [String: Any] {
         [
             "available": false,
             "code": "unsupported_platform",
@@ -298,8 +254,13 @@ public class AppleIntelligenceFlutterPlugin: NSObject, FlutterPlugin {
     }
 
     /// Convenience error returned to Flutter when the platform is unsupported.
-    private func unsupportedPlatformError() -> FlutterError {
+    private func unsupportedFoundationModelsError() -> FlutterError {
         FlutterError(code: "unsupported_platform", message: "Apple Intelligence requires iOS 26.0 or newer.", details: nil)
+    }
+
+    /// Convenience error returned when Translation framework features aren't available.
+    private func unsupportedTranslationError() -> FlutterError {
+        FlutterError(code: "unsupported_platform", message: "Apple Translation requires iOS 26.0 or newer.", details: nil)
     }
 
     /// Normalizes native errors into Flutter-friendly payloads.
@@ -321,20 +282,8 @@ public class AppleIntelligenceFlutterPlugin: NSObject, FlutterPlugin {
             )
         }
 
-        if #available(iOS 26.0, *), let translationManagerError = error as? TranslationManagerError {
-            return FlutterError(
-                code: translationManagerError.code,
-                message: translationManagerError.errorDescription ?? "Translation failed.",
-                details: translationManagerError.errorDetails
-            )
-        }
-
         if #available(iOS 26.0, *), let translationError = error as? TranslationError {
-            return FlutterError(
-                code: translationErrorCode(from: translationError),
-                message: translationError.localizedDescription,
-                details: translationErrorDetails(from: translationError)
-            )
+            return makeTranslationFlutterError(from: translationError)
         }
 
         if let localized = error as? LocalizedError {
@@ -361,10 +310,227 @@ public class AppleIntelligenceFlutterPlugin: NSObject, FlutterPlugin {
         )
     }
 
+    @available(iOS 26.0, *)
+    private func makeTranslationFlutterError(from error: TranslationError) -> FlutterError {
+        let code: String
+        switch error {
+        case TranslationError.nothingToTranslate:
+            code = "translation_nothing_to_translate"
+        case TranslationError.unableToIdentifyLanguage:
+            code = "translation_unable_to_identify_language"
+        case TranslationError.internalError:
+            code = "translation_internal_error"
+        case TranslationError.alreadyCancelled:
+            code = "translation_already_cancelled"
+        case TranslationError.notInstalled:
+            code = "translation_not_installed"
+        case TranslationError.unsupportedSourceLanguage:
+            code = "translation_unsupported_source_language"
+        case TranslationError.unsupportedTargetLanguage:
+            code = "translation_unsupported_target_language"
+        case TranslationError.unsupportedLanguagePairing:
+            code = "translation_unsupported_language_pairing"
+        default:
+            code = "translation_error"
+        }
+
+        let details = sanitizedDetails([
+            "failureReason": error.failureReason,
+            "recoverySuggestion": error.recoverySuggestion
+        ])
+
+        return FlutterError(
+            code: code,
+            message: error.errorDescription ?? error.localizedDescription,
+            details: details
+        )
+    }
+
     /// Removes nil values from an error-details dictionary.
     private func sanitizedDetails(_ dictionary: [String: Any?]) -> [String: Any]? {
         let filtered = dictionary.compactMapValues { $0 }
         return filtered.isEmpty ? nil : filtered
+    }
+}
+
+@available(iOS 26.0, *)
+private extension AppleIntelligenceFlutterPlugin {
+    func handleTranslateTextAvailable(
+        text: String,
+        sourceIdentifier: String,
+        targetIdentifier: String,
+        clientIdentifier: String?,
+        result: @escaping FlutterResult
+    ) {
+        Task {
+            do {
+                let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmedText.isEmpty else {
+                    throw TranslationError.nothingToTranslate
+                }
+
+                let sourceLanguage = try language(from: sourceIdentifier)
+                let targetLanguage = try language(from: targetIdentifier)
+                let session = try TranslationSession(installedSource: sourceLanguage, target: targetLanguage)
+
+                let request = TranslationSession.Request(
+                    sourceText: trimmedText,
+                    clientIdentifier: normalizedClientIdentifier(clientIdentifier)
+                )
+
+                let responses = try await session.translations(from: [request])
+                guard let response = responses.first else {
+                    throw TranslationError.internalError
+                }
+
+                let payload = translationResponseDictionary(from: response)
+                DispatchQueue.main.async {
+                    result(payload)
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    result(self.makeFlutterError(from: error))
+                }
+            }
+        }
+    }
+
+    func handleTranslationSupportedLanguagesAvailable(result: @escaping FlutterResult) {
+        Task {
+            let availability = LanguageAvailability()
+            let languages = await availability.supportedLanguages
+            let identifiers = languages.map { $0.minimalIdentifier }
+            DispatchQueue.main.async {
+                result(identifiers)
+            }
+        }
+    }
+
+    func handleTranslationAvailabilityAvailable(
+        sourceIdentifier: String,
+        targetIdentifier: String?,
+        result: @escaping FlutterResult
+    ) {
+        Task {
+            do {
+                let sourceLanguage = try language(from: sourceIdentifier)
+                let targetLanguage = try optionalLanguage(from: targetIdentifier)
+                let availability = LanguageAvailability()
+                let status = await availability.status(from: sourceLanguage, to: targetLanguage)
+                let payload = translationAvailabilityPayload(
+                    source: sourceLanguage,
+                    target: targetLanguage,
+                    status: status
+                )
+                DispatchQueue.main.async {
+                    result(payload)
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    result(self.makeFlutterError(from: error))
+                }
+            }
+        }
+    }
+
+    func handlePrepareTranslationAvailable(
+        sourceIdentifier: String,
+        targetIdentifier: String?,
+        result: @escaping FlutterResult
+    ) {
+        Task {
+            do {
+                let sourceLanguage = try language(from: sourceIdentifier)
+                let targetLanguage = try optionalLanguage(from: targetIdentifier)
+                let session = try TranslationSession(installedSource: sourceLanguage, target: targetLanguage)
+                try await session.prepareTranslation()
+                DispatchQueue.main.async {
+                    result(true)
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    result(self.makeFlutterError(from: error))
+                }
+            }
+        }
+    }
+
+    func language(from identifier: String) throws -> Locale.Language {
+        let trimmed = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw TranslationError.unableToIdentifyLanguage
+        }
+        return Locale.Language(identifier: trimmed)
+    }
+
+    func optionalLanguage(from identifier: String?) throws -> Locale.Language? {
+        guard let identifier else {
+            return nil
+        }
+        let trimmed = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return nil
+        }
+        return Locale.Language(identifier: trimmed)
+    }
+
+    func normalizedClientIdentifier(_ identifier: String?) -> String? {
+        guard let identifier = identifier?.trimmingCharacters(in: .whitespacesAndNewlines), !identifier.isEmpty else {
+            return nil
+        }
+        return identifier
+    }
+
+    func translationResponseDictionary(from response: TranslationSession.Response) -> [String: Any] {
+        var payload: [String: Any] = [
+            "sourceText": response.sourceText,
+            "targetText": response.targetText
+        ]
+
+        payload["sourceLanguage"] = response.sourceLanguage.minimalIdentifier
+        payload["targetLanguage"] = response.targetLanguage.minimalIdentifier
+        if let client = response.clientIdentifier, !client.isEmpty {
+            payload["clientIdentifier"] = client
+        }
+
+        return payload
+    }
+
+    func translationAvailabilityPayload(
+        source: Locale.Language,
+        target: Locale.Language?,
+        status: LanguageAvailability.Status
+    ) -> [String: Any] {
+        let statusString: String
+        let isInstalled: Bool
+        switch status {
+        case .installed:
+            statusString = "installed"
+            isInstalled = true
+        case .supported:
+            statusString = "supported"
+            isInstalled = false
+        case .unsupported:
+            statusString = "unsupported"
+            isInstalled = false
+        @unknown default:
+            statusString = "unknown"
+            isInstalled = false
+        }
+
+        let isSupported = status != .unsupported
+        var payload: [String: Any] = [
+            "status": statusString,
+            "isInstalled": isInstalled,
+            "isSupported": isSupported,
+            "sourceLanguage": source.minimalIdentifier
+        ]
+
+        if let targetIdentifier = target?.minimalIdentifier {
+            payload["targetLanguage"] = targetIdentifier
+        }
+
+        return payload
     }
 }
 
