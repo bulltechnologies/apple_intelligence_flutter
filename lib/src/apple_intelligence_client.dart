@@ -50,12 +50,14 @@ class AppleIntelligenceAvailability {
     required this.code,
     this.reason,
     this.sessionReady = false,
+    this.sessionId = 'default',
   });
 
   final bool available;
   final String code;
   final String? reason;
   final bool sessionReady;
+  final String sessionId;
 
   factory AppleIntelligenceAvailability.fromPlatformResponse(
     Map<String, dynamic>? response,
@@ -65,6 +67,7 @@ class AppleIntelligenceAvailability {
         available: false,
         code: 'unknown',
         reason: 'No availability information returned from native platform.',
+        sessionId: 'default',
       );
     }
 
@@ -73,6 +76,9 @@ class AppleIntelligenceAvailability {
       code: response['code'] as String? ?? 'unknown',
       reason: response['reason'] as String?,
       sessionReady: response['sessionReady'] as bool? ?? false,
+      sessionId: (response['sessionId'] as String?)?.trim().isNotEmpty == true
+          ? (response['sessionId'] as String)
+          : 'default',
     );
   }
 
@@ -81,6 +87,7 @@ class AppleIntelligenceAvailability {
         'code': code,
         if (reason != null) 'reason': reason,
         'sessionReady': sessionReady,
+        'sessionId': sessionId,
       };
 }
 
@@ -101,6 +108,7 @@ class AppleIntelligenceClient {
       EventChannel('apple_intelligence_flutter/stream');
 
   AppleIntelligenceAvailability? _lastAvailability;
+  String? _defaultSessionId;
 
   /// Get singleton instance
   static AppleIntelligenceClient get instance {
@@ -115,14 +123,17 @@ class AppleIntelligenceClient {
   /// the process, ensuring consistent outputs across prompts. On unsupported
   /// platforms, the call resolves with an unavailable result rather than
   /// throwing.
-  Future<AppleIntelligenceAvailability> initialize(
-      {String? instructions}) async {
+  Future<AppleIntelligenceAvailability> initialize({
+    String? instructions,
+    String? sessionId,
+  }) async {
     if (!_isPlatformSupported) {
       const availability = AppleIntelligenceAvailability(
         available: false,
         code: 'unsupported_platform',
         reason:
             'Apple Intelligence is currently available on iOS devices only.',
+        sessionId: 'default',
       );
       _lastAvailability = availability;
       return availability;
@@ -130,17 +141,21 @@ class AppleIntelligenceClient {
 
     try {
       final sanitizedInstructions = instructions?.trim();
+      final sanitizedSessionId = sessionId?.trim();
       final response = await _channel.invokeMapMethod<String, dynamic>(
         'initialize',
         <String, dynamic>{
           if (sanitizedInstructions != null && sanitizedInstructions.isNotEmpty)
             'instructions': sanitizedInstructions,
+          if (sanitizedSessionId != null && sanitizedSessionId.isNotEmpty)
+            'sessionId': sanitizedSessionId,
         },
       );
 
       final availability =
           AppleIntelligenceAvailability.fromPlatformResponse(response);
       _lastAvailability = availability;
+      _defaultSessionId = availability.sessionId;
       return availability;
     } on PlatformException catch (e) {
       throw AppleIntelligenceException.fromPlatformException(e);
@@ -152,14 +167,20 @@ class AppleIntelligenceClient {
   /// This call triggers a lightweight availability probe on the host platform
   /// so it is safe to call during app start or before showing intelligence
   /// features.
-  Future<bool> isAvailable() async {
+  Future<bool> isAvailable({String? sessionId}) async {
     if (!_isPlatformSupported) {
       return false;
     }
 
     try {
-      final response =
-          await _channel.invokeMapMethod<String, dynamic>('isAvailable');
+      final sanitizedSessionId = sessionId?.trim();
+      final response = await _channel.invokeMapMethod<String, dynamic>(
+        'isAvailable',
+        <String, dynamic>{
+          if (sanitizedSessionId != null && sanitizedSessionId.isNotEmpty)
+            'sessionId': sanitizedSessionId,
+        },
+      );
       final availability =
           AppleIntelligenceAvailability.fromPlatformResponse(response);
       _lastAvailability = availability;
@@ -179,6 +200,8 @@ class AppleIntelligenceClient {
   Future<TextProcessingResponse> sendPrompt({
     required String prompt,
     String? context,
+    AppleIntelligenceGenerationOptions? options,
+    String? sessionId,
   }) async {
     if (!_isPlatformSupported) {
       throw const AppleIntelligenceException(
@@ -197,12 +220,16 @@ class AppleIntelligenceClient {
     }
 
     final sanitizedContext = context?.trim();
+    final resolvedSessionId = _resolveSessionId(sessionId);
+    final optionsPayload = options?.toJson();
 
     try {
       final response = await _channel.invokeMethod<String>('sendPrompt', {
         'prompt': sanitizedPrompt,
         if (sanitizedContext != null && sanitizedContext.isNotEmpty)
           'context': sanitizedContext,
+        if (optionsPayload != null) 'options': optionsPayload,
+        'sessionId': resolvedSessionId,
       });
 
       if (response == null) {
@@ -230,6 +257,8 @@ class AppleIntelligenceClient {
   AppleIntelligenceStreamSession streamPromptSession({
     required String prompt,
     String? context,
+    AppleIntelligenceGenerationOptions? options,
+    String? sessionId,
   }) {
     if (!_isPlatformSupported) {
       final controller = StreamController<AppleIntelligenceStreamChunk>();
@@ -286,10 +315,14 @@ class AppleIntelligenceClient {
     }
 
     final sanitizedContext = context?.trim();
+    final optionsPayload = options?.toJson();
+    final resolvedSessionId = _resolveSessionId(sessionId);
     final args = <String, dynamic>{
       'prompt': sanitizedPrompt,
       if (sanitizedContext != null && sanitizedContext.isNotEmpty)
         'context': sanitizedContext,
+      if (optionsPayload != null) 'options': optionsPayload,
+      'sessionId': resolvedSessionId,
     };
 
     final controller = StreamController<AppleIntelligenceStreamChunk>();
@@ -363,10 +396,14 @@ class AppleIntelligenceClient {
   Stream<AppleIntelligenceStreamChunk> streamPrompt({
     required String prompt,
     String? context,
+    AppleIntelligenceGenerationOptions? options,
+    String? sessionId,
   }) {
     final session = streamPromptSession(
       prompt: prompt,
       context: context,
+      options: options,
+      sessionId: sessionId,
     );
     return session.stream;
   }
@@ -375,8 +412,15 @@ class AppleIntelligenceClient {
   Stream<String> streamPromptText({
     required String prompt,
     String? context,
+    AppleIntelligenceGenerationOptions? options,
+    String? sessionId,
   }) {
-    return streamPrompt(prompt: prompt, context: context)
+    return streamPrompt(
+      prompt: prompt,
+      context: context,
+      options: options,
+      sessionId: sessionId,
+    )
         .where((chunk) => chunk.cumulativeText != null)
         .map((chunk) => chunk.cumulativeText!);
   }
@@ -386,12 +430,81 @@ class AppleIntelligenceClient {
   /// Useful for debugging and providing richer UI without making an extra
   /// platform channel call.
   AppleIntelligenceAvailability? get lastAvailability => _lastAvailability;
+  String? get defaultSessionId => _defaultSessionId;
 
   bool get _isPlatformSupported {
     if (kIsWeb) {
       return false;
     }
     return defaultTargetPlatform == TargetPlatform.iOS;
+  }
+
+  /// Creates a new session on the native side and returns its availability snapshot.
+  Future<AppleIntelligenceAvailability> createSession({
+    String? instructions,
+  }) async {
+    if (!_isPlatformSupported) {
+      throw const AppleIntelligenceException(
+        code: 'unsupported_platform',
+        message:
+            'Apple Intelligence is currently available on iOS devices only.',
+      );
+    }
+
+    final sanitizedInstructions = instructions?.trim();
+    try {
+      final response = await _channel.invokeMapMethod<String, dynamic>(
+        'createSession',
+        <String, dynamic>{
+          if (sanitizedInstructions != null && sanitizedInstructions.isNotEmpty)
+            'instructions': sanitizedInstructions,
+        },
+      );
+      final availability =
+          AppleIntelligenceAvailability.fromPlatformResponse(response);
+      _lastAvailability = availability;
+      return availability;
+    } on PlatformException catch (e) {
+      throw AppleIntelligenceException.fromPlatformException(e);
+    }
+  }
+
+  /// Closes an existing session on the native side.
+  Future<void> closeSession(String sessionId) async {
+    if (!_isPlatformSupported) {
+      return;
+    }
+
+    final sanitized = sessionId.trim();
+    if (sanitized.isEmpty) {
+      throw const AppleIntelligenceException(
+        code: 'invalid_session',
+        message: 'A valid sessionId is required.',
+      );
+    }
+
+    try {
+      await _channel.invokeMethod<void>('closeSession', {
+        'sessionId': sanitized,
+      });
+      if (_defaultSessionId == sanitized) {
+        _defaultSessionId = null;
+      }
+    } on PlatformException catch (e) {
+      throw AppleIntelligenceException.fromPlatformException(e);
+    }
+  }
+
+  String _resolveSessionId(String? sessionId) {
+    final sanitized = sessionId?.trim();
+    if (sanitized != null && sanitized.isNotEmpty) {
+      return sanitized;
+    }
+    final cached = _defaultSessionId ?? _lastAvailability?.sessionId;
+    if (cached != null && cached.trim().isNotEmpty) {
+      return cached;
+    }
+    return 'default';
   }
 
   Object _mapStreamError(Object error) {

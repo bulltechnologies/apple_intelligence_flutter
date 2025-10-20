@@ -30,9 +30,13 @@ public class AppleIntelligenceFlutterPlugin: NSObject, FlutterPlugin {
         case "initialize":
             handleInitialize(call.arguments, result: result)
         case "isAvailable":
-            handleIsAvailable(result: result)
+            handleIsAvailable(call.arguments, result: result)
         case "sendPrompt":
             handleSendPrompt(call.arguments, result: result)
+        case "createSession":
+            handleCreateSession(call.arguments, result: result)
+        case "closeSession":
+            handleCloseSession(call.arguments, result: result)
         case "transcribeAudio":
             handleTranscribeAudio(call.arguments, result: result)
         case "translateText":
@@ -56,11 +60,12 @@ public class AppleIntelligenceFlutterPlugin: NSObject, FlutterPlugin {
         }
 
         let instructions = (arguments as? [String: Any])?["instructions"] as? String
+        let sessionId = (arguments as? [String: Any])?["sessionId"] as? String
 
         Task {
             do {
                 let manager = resolveSessionManager()
-                let initResult = try await manager.configure(with: instructions)
+                let initResult = try await manager.configure(with: instructions, sessionId: sessionId)
                 DispatchQueue.main.async {
                     result(initResult.asDictionary())
                 }
@@ -73,7 +78,7 @@ public class AppleIntelligenceFlutterPlugin: NSObject, FlutterPlugin {
     }
 
     /// Returns the current availability snapshot to Dart.
-    private func handleIsAvailable(result: @escaping FlutterResult) {
+    private func handleIsAvailable(_ arguments: Any?, result: @escaping FlutterResult) {
         guard #available(iOS 26.0, *) else {
             result(unsupportedFoundationModelsPayload())
             return
@@ -81,7 +86,8 @@ public class AppleIntelligenceFlutterPlugin: NSObject, FlutterPlugin {
 
         Task {
             let manager = resolveSessionManager()
-            let snapshot = await manager.availabilitySnapshot()
+            let sessionId = (arguments as? [String: Any])?["sessionId"] as? String
+            let snapshot = await manager.availabilitySnapshot(sessionId: sessionId)
             DispatchQueue.main.async {
                 result(snapshot.asDictionary())
             }
@@ -101,11 +107,23 @@ public class AppleIntelligenceFlutterPlugin: NSObject, FlutterPlugin {
         }
 
         let context = params["context"] as? String
+        let sessionId = params["sessionId"] as? String
+        let optionsRaw = params["options"]
+        let options: GenerationOptions?
+        do {
+            options = try parseGenerationOptions(from: optionsRaw)
+        } catch let error as GenerationOptionsParsingError {
+            result(error.flutterError)
+            return
+        } catch {
+            result(self.makeFlutterError(from: error))
+            return
+        }
 
         Task {
             do {
                 let manager = resolveSessionManager()
-                let response = try await manager.generate(prompt: prompt, context: context)
+                let response = try await manager.generate(prompt: prompt, context: context, sessionId: sessionId, options: options)
                 DispatchQueue.main.async {
                     result(response)
                 }
@@ -113,6 +131,57 @@ public class AppleIntelligenceFlutterPlugin: NSObject, FlutterPlugin {
                 DispatchQueue.main.async {
                     result(self.makeFlutterError(from: error))
                 }
+            }
+        }
+    }
+
+    private func handleCreateSession(_ arguments: Any?, result: @escaping FlutterResult) {
+        guard #available(iOS 26.0, *) else {
+            result(unsupportedFoundationModelsPayload())
+            return
+        }
+
+        let instructions = (arguments as? [String: Any])?["instructions"] as? String
+
+        Task {
+            do {
+                let manager = resolveSessionManager()
+                let initResult = try await manager.createSession(with: instructions)
+                DispatchQueue.main.async {
+                    result(initResult.asDictionary())
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    result(self.makeFlutterError(from: error))
+                }
+            }
+        }
+    }
+
+    private func handleCloseSession(_ arguments: Any?, result: @escaping FlutterResult) {
+        guard #available(iOS 26.0, *) else {
+            result(unsupportedFoundationModelsPayload())
+            return
+        }
+
+        guard
+            let params = arguments as? [String: Any],
+            let sessionId = params["sessionId"] as? String,
+            !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            result(FlutterError(
+                code: "invalid_arguments",
+                message: "Parameter 'sessionId' is required.",
+                details: nil
+            ))
+            return
+        }
+
+        let manager = resolveSessionManager()
+        Task {
+            await manager.closeSession(with: sessionId)
+            DispatchQueue.main.async {
+                result(nil)
             }
         }
     }
@@ -354,6 +423,148 @@ public class AppleIntelligenceFlutterPlugin: NSObject, FlutterPlugin {
 }
 
 @available(iOS 26.0, *)
+fileprivate enum GenerationOptionsParsingError: Error {
+    case invalid(String)
+
+    var flutterError: FlutterError {
+        switch self {
+        case .invalid(let message):
+            return FlutterError(code: "invalid_generation_options", message: message, details: nil)
+        }
+    }
+}
+
+@available(iOS 26.0, *)
+fileprivate func parseGenerationOptions(from raw: Any?) throws -> GenerationOptions? {
+    guard let raw else { return nil }
+    guard let dict = raw as? [String: Any] else {
+        throw GenerationOptionsParsingError.invalid("Generation options must be provided as a map of values.")
+    }
+
+    let temperature = try castOptionalDouble(dict["temperature"], label: "temperature")
+    let maximumTokens = try castOptionalInt(dict["maximumResponseTokens"], label: "maximumResponseTokens")
+
+    var samplingMode: GenerationOptions.SamplingMode?
+    if let samplingRaw = dict["samplingMode"] {
+        guard let samplingDict = samplingRaw as? [String: Any] else {
+            throw GenerationOptionsParsingError.invalid("samplingMode must be a map with a 'type' field.")
+        }
+        guard let typeValue = (samplingDict["type"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(),
+            !typeValue.isEmpty else {
+            throw GenerationOptionsParsingError.invalid("samplingMode requires a non-empty 'type'.")
+        }
+
+        switch typeValue {
+        case "greedy":
+            samplingMode = .greedy
+        case "randomtop", "randomtopk", "topk":
+            let top = try castRequiredInt(samplingDict["top"], label: "samplingMode.top")
+            guard top > 0 else {
+                throw GenerationOptionsParsingError.invalid("samplingMode.top must be greater than zero.")
+            }
+            let seed = try castOptionalUInt64(samplingDict["seed"], label: "samplingMode.seed")
+            samplingMode = .random(top: top, seed: seed)
+        case "randomprobability", "topp", "nucleus":
+            let threshold = try castRequiredDouble(samplingDict["probabilityThreshold"], label: "samplingMode.probabilityThreshold")
+            guard threshold >= 0.0, threshold <= 1.0 else {
+                throw GenerationOptionsParsingError.invalid("samplingMode.probabilityThreshold must be between 0.0 and 1.0.")
+            }
+            let seed = try castOptionalUInt64(samplingDict["seed"], label: "samplingMode.seed")
+            samplingMode = .random(probabilityThreshold: threshold, seed: seed)
+        default:
+            throw GenerationOptionsParsingError.invalid("Unknown samplingMode type '\(typeValue)'.")
+        }
+    }
+
+    if let maximumTokens, maximumTokens <= 0 {
+        throw GenerationOptionsParsingError.invalid("maximumResponseTokens must be greater than zero when provided.")
+    }
+
+    if temperature != nil || maximumTokens != nil || samplingMode != nil {
+        return GenerationOptions(
+            sampling: samplingMode,
+            temperature: temperature,
+            maximumResponseTokens: maximumTokens
+        )
+    }
+
+    return nil
+}
+
+@available(iOS 26.0, *)
+fileprivate func castOptionalDouble(_ value: Any?, label: String) throws -> Double? {
+    guard let value else { return nil }
+    if let number = value as? NSNumber {
+        return number.doubleValue
+    }
+    if let double = value as? Double {
+        return double
+    }
+    if let string = value as? String, let parsed = Double(string) {
+        return parsed
+    }
+    throw GenerationOptionsParsingError.invalid("Generation option '\(label)' must be a floating point number.")
+}
+
+@available(iOS 26.0, *)
+fileprivate func castOptionalInt(_ value: Any?, label: String) throws -> Int? {
+    guard let value else { return nil }
+    if let number = value as? NSNumber {
+        return number.intValue
+    }
+    if let intValue = value as? Int {
+        return intValue
+    }
+    if let string = value as? String, let parsed = Int(string) {
+        return parsed
+    }
+    throw GenerationOptionsParsingError.invalid("Generation option '\(label)' must be an integer.")
+}
+
+@available(iOS 26.0, *)
+fileprivate func castRequiredInt(_ value: Any?, label: String) throws -> Int {
+    if let parsed = try castOptionalInt(value, label: label) {
+        return parsed
+    }
+    throw GenerationOptionsParsingError.invalid("Generation option '\(label)' is required.")
+}
+
+@available(iOS 26.0, *)
+fileprivate func castRequiredDouble(_ value: Any?, label: String) throws -> Double {
+    if let parsed = try castOptionalDouble(value, label: label) {
+        return parsed
+    }
+    throw GenerationOptionsParsingError.invalid("Generation option '\(label)' is required.")
+}
+
+@available(iOS 26.0, *)
+fileprivate func castOptionalUInt64(_ value: Any?, label: String) throws -> UInt64? {
+    guard let value else { return nil }
+    if let number = value as? NSNumber {
+        let doubleValue = number.doubleValue
+        guard doubleValue >= 0 else {
+            throw GenerationOptionsParsingError.invalid("Generation option '\(label)' must be non-negative.")
+        }
+        return number.uint64Value
+    }
+    if let uintValue = value as? UInt64 {
+        return uintValue
+    }
+    if let intValue = value as? Int {
+        guard intValue >= 0 else {
+            throw GenerationOptionsParsingError.invalid("Generation option '\(label)' must be non-negative.")
+        }
+        return UInt64(intValue)
+    }
+    if let string = value as? String, let parsed = UInt64(string) {
+        return parsed
+    }
+    throw GenerationOptionsParsingError.invalid("Generation option '\(label)' must be a non-negative integer.")
+}
+
+@available(iOS 26.0, *)
 private extension AppleIntelligenceFlutterPlugin {
     func handleTranslateTextAvailable(
         text: String,
@@ -561,11 +772,21 @@ final class AppleIntelligenceStreamHandler: NSObject, FlutterStreamHandler {
         }
 
         let context = params["context"] as? String
+        let sessionId = params["sessionId"] as? String
+        let optionsRaw = params["options"]
+        let options: GenerationOptions?
+        do {
+            options = try parseGenerationOptions(from: optionsRaw)
+        } catch let error as GenerationOptionsParsingError {
+            return error.flutterError
+        } catch {
+            return plugin.makeFlutterError(from: error)
+        }
         currentSink = events
 
         currentTask = Task { [weak self] in
             guard let self else { return }
-            await self.stream(prompt: prompt, context: context, sink: events)
+            await self.stream(prompt: prompt, context: context, sessionId: sessionId, options: options, sink: events)
         }
 
         return nil
@@ -578,7 +799,7 @@ final class AppleIntelligenceStreamHandler: NSObject, FlutterStreamHandler {
         return nil
     }
 
-    private func stream(prompt: String, context: String?, sink: @escaping FlutterEventSink) async {
+    private func stream(prompt: String, context: String?, sessionId: String?, options: GenerationOptions?, sink: @escaping FlutterEventSink) async {
         guard let plugin else { return }
 
         let emit: (Any) -> Void = { value in
@@ -589,7 +810,7 @@ final class AppleIntelligenceStreamHandler: NSObject, FlutterStreamHandler {
 
         do {
             let manager = plugin.resolveSessionManager()
-            let responseStream = try await manager.stream(prompt: prompt, context: context)
+            let responseStream = try await manager.stream(prompt: prompt, context: context, sessionId: sessionId, options: options)
 
             var aggregatedText = ""
             var lastRaw: String?
