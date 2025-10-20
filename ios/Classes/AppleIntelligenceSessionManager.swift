@@ -96,7 +96,12 @@ actor AppleIntelligenceSessionManager {
             constructedPrompt = Prompt(trimmedPrompt)
         }
 
-        let response = try await activeSession.respond(to: constructedPrompt, options: options)
+        let response: GeneratedContent
+        if let options {
+            response = try await activeSession.respond(to: constructedPrompt, options: options)
+        } else {
+            response = try await activeSession.respond(to: constructedPrompt)
+        }
         return response.content
     }
 
@@ -126,7 +131,10 @@ actor AppleIntelligenceSessionManager {
             constructedPrompt = Prompt(trimmedPrompt)
         }
 
-        return activeSession.streamResponse(to: constructedPrompt, options: options)
+        if let options {
+            return activeSession.streamResponse(to: constructedPrompt, options: options)
+        }
+        return activeSession.streamResponse(to: constructedPrompt)
     }
 
     /// Creates a new session honoring any stored instructions.
