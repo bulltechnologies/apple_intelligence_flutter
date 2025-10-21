@@ -780,6 +780,13 @@ final class AppleIntelligenceStreamHandler: NSObject, FlutterStreamHandler {
         } catch let error as GenerationOptionsParsingError {
             return error.flutterError
         } catch {
+            guard let plugin else {
+                return FlutterError(
+                    code: "apple_intelligence_error",
+                    message: error.localizedDescription,
+                    details: nil
+                )
+            }
             return plugin.makeFlutterError(from: error)
         }
         currentSink = events

@@ -96,7 +96,7 @@ actor AppleIntelligenceSessionManager {
             constructedPrompt = Prompt(trimmedPrompt)
         }
 
-        let response: GeneratedContent
+        let response: LanguageModelSession.Response<String>
         if let options {
             response = try await activeSession.respond(to: constructedPrompt, options: options)
         } else {

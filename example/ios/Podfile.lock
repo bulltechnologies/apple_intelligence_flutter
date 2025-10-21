@@ -62,7 +62,7 @@ EXTERNAL SOURCES:
     :path: Flutter
 
 SPEC CHECKSUMS:
-  apple_intelligence_flutter: 392805b0c75e12ea0de67cc83936005ef0b217f4
+  apple_intelligence_flutter: 76883bab42110f6a55e11f36ede34b44437061d3
   DKImagePickerController: 946cec48c7873164274ecc4624d19e3da4c1ef3c
   DKPhotoGallery: b3834fecb755ee09a593d7c9e389d8b5d6deed60
   file_picker: 5f42b9d5580e30b57b4863f9d94b448016b702e5
