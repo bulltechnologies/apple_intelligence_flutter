@@ -28,6 +28,7 @@ void main() {
         'code': 'available',
         'sessionReady': true,
         'sessionId': 'default',
+        'useCase': 'general',
       };
     });
 
@@ -37,6 +38,57 @@ void main() {
     expect(availability.code, 'available');
     expect(availability.sessionReady, isTrue);
     expect(availability.sessionId, 'default');
+    expect(availability.useCase, AppleIntelligenceUseCase.general);
+  });
+
+  test('initialize forwards useCase when provided', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (MethodCall call) async {
+      expect(call.method, 'initialize');
+      final args = call.arguments as Map<dynamic, dynamic>;
+      expect(args['useCase'], 'contentTagging');
+      return {
+        'available': true,
+        'code': 'available',
+        'sessionReady': false,
+        'sessionId': 'content',
+        'useCase': 'contentTagging',
+      };
+    });
+
+    final availability = await AppleIntelligenceClient.instance.initialize(
+      useCase: AppleIntelligenceUseCase.contentTagging,
+    );
+
+    expect(availability.useCase, AppleIntelligenceUseCase.contentTagging);
+    expect(availability.sessionReady, isFalse);
+    expect(availability.sessionId, 'content');
+  });
+
+  test('isAvailable includes useCase when specified', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (MethodCall call) async {
+      expect(call.method, 'isAvailable');
+      final args = call.arguments as Map<dynamic, dynamic>;
+      expect(args['useCase'], 'contentTagging');
+      return {
+        'available': true,
+        'code': 'available',
+        'sessionReady': false,
+        'sessionId': 'default',
+        'useCase': 'contentTagging',
+      };
+    });
+
+    final result = await AppleIntelligenceClient.instance.isAvailable(
+      useCase: AppleIntelligenceUseCase.contentTagging,
+    );
+
+    expect(result, isTrue);
   });
 
   test('sendPrompt returns a successful response', () async {
@@ -51,6 +103,7 @@ void main() {
             'code': 'available',
             'sessionReady': true,
             'sessionId': 'chat-main',
+            'useCase': 'general',
           };
         case 'sendPrompt':
           final args = call.arguments as Map<dynamic, dynamic>;
@@ -94,6 +147,7 @@ void main() {
     expect(response.processedText, 'Once upon a time');
     expect(response.metadata?['code'], 'available');
     expect(response.metadata?['sessionId'], 'chat-main');
+    expect(response.metadata?['useCase'], 'general');
   });
 
   test('sendPrompt throws on empty prompt without hitting platform channel',
@@ -264,11 +318,13 @@ void main() {
       expect(call.method, 'createSession');
       final args = call.arguments as Map<dynamic, dynamic>;
       expect(args['instructions'], 'Stay curious');
+      expect(args.containsKey('useCase'), isFalse);
       return {
         'available': true,
         'code': 'available',
         'sessionReady': true,
         'sessionId': 'session-123',
+        'useCase': 'contentTagging',
       };
     });
 
@@ -277,6 +333,33 @@ void main() {
 
     expect(availability.sessionId, 'session-123');
     expect(availability.available, isTrue);
+    expect(availability.useCase, AppleIntelligenceUseCase.contentTagging);
+  });
+
+  test('createSession forwards useCase parameter', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (MethodCall call) async {
+      expect(call.method, 'createSession');
+      final args = call.arguments as Map<dynamic, dynamic>;
+      expect(args['useCase'], 'contentTagging');
+      expect(args.containsKey('instructions'), isFalse);
+      return {
+        'available': true,
+        'code': 'available',
+        'sessionReady': true,
+        'sessionId': 'session-ct',
+        'useCase': 'contentTagging',
+      };
+    });
+
+    final availability = await AppleIntelligenceClient.instance.createSession(
+      useCase: AppleIntelligenceUseCase.contentTagging,
+    );
+
+    expect(availability.useCase, AppleIntelligenceUseCase.contentTagging);
+    expect(availability.sessionId, 'session-ct');
   });
 
   test('closeSession throws when sessionId missing', () async {

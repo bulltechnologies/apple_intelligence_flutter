@@ -6,17 +6,22 @@ import '../models/translation_availability_status.dart';
 import '../models/translation_result.dart';
 
 /// Service wrapper around Apple's Translation framework.
+///
+/// This service provides access to iOS Translation framework capabilities for
+/// translating text between supported languages with on-device processing.
 class TranslationService {
   /// Creates a translation service wired to the plugin method channel.
-  TranslationService({MethodChannel? channel})
-      : _channel = channel ?? const MethodChannel('apple_intelligence_flutter');
+  TranslationService({MethodChannel? channel}) : _channel = channel ?? const MethodChannel('apple_intelligence_flutter');
 
   final MethodChannel _channel;
 
-  bool get _isSupportedPlatform =>
-      !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+  bool get _isSupportedPlatform => !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
-  /// Translate [text] from [sourceLanguage] to [targetLanguage].
+  /// Translates [text] from [sourceLanguage] to [targetLanguage].
+  ///
+  /// Both language parameters should be BCP 47 identifiers (e.g., 'en', 'es-MX').
+  /// The optional [clientIdentifier] can be used to correlate requests when
+  /// batching multiple translations.
   Future<TranslationResult> translate({
     required String text,
     required String sourceLanguage,
@@ -43,8 +48,7 @@ class TranslationService {
     if (sanitizedSource.isEmpty || sanitizedTarget.isEmpty) {
       throw const AppleIntelligenceException(
         code: 'translation_invalid_language',
-        message:
-            'Both sourceLanguage and targetLanguage must be non-empty BCP 47 identifiers.',
+        message: 'Both sourceLanguage and targetLanguage must be non-empty BCP 47 identifiers.',
       );
     }
 
@@ -54,8 +58,7 @@ class TranslationService {
       'text': sanitizedText,
       'sourceLanguage': sanitizedSource,
       'targetLanguage': sanitizedTarget,
-      if (sanitizedClientId != null && sanitizedClientId.isNotEmpty)
-        'clientIdentifier': sanitizedClientId,
+      if (sanitizedClientId != null && sanitizedClientId.isNotEmpty) 'clientIdentifier': sanitizedClientId,
     };
 
     try {
@@ -78,6 +81,9 @@ class TranslationService {
   }
 
   /// Returns availability information for a language pairing.
+  ///
+  /// Checks whether translation between [sourceLanguage] and optional
+  /// [targetLanguage] is supported and whether language models are installed.
   Future<TranslationAvailabilityStatus> availability({
     required String sourceLanguage,
     String? targetLanguage,
@@ -101,8 +107,7 @@ class TranslationService {
 
     final args = <String, dynamic>{
       'sourceLanguage': sanitizedSource,
-      if (sanitizedTarget != null && sanitizedTarget.isNotEmpty)
-        'targetLanguage': sanitizedTarget,
+      if (sanitizedTarget != null && sanitizedTarget.isNotEmpty) 'targetLanguage': sanitizedTarget,
     };
 
     try {
@@ -125,6 +130,9 @@ class TranslationService {
   }
 
   /// Lists system supported translation language identifiers.
+  ///
+  /// Returns a list of BCP 47 language identifiers that are supported by the
+  /// iOS Translation framework on this device.
   Future<List<String>> supportedLanguages() async {
     if (!_isSupportedPlatform) {
       throw const AppleIntelligenceException(
@@ -150,6 +158,9 @@ class TranslationService {
   }
 
   /// Prompts iOS to download required translation assets ahead of time.
+  ///
+  /// Pre-downloads language models for [sourceLanguage] and optional
+  /// [targetLanguage] to ensure faster translation when needed.
   Future<void> prepareTranslation({
     required String sourceLanguage,
     String? targetLanguage,
@@ -173,8 +184,7 @@ class TranslationService {
 
     final args = <String, dynamic>{
       'sourceLanguage': sanitizedSource,
-      if (sanitizedTarget != null && sanitizedTarget.isNotEmpty)
-        'targetLanguage': sanitizedTarget,
+      if (sanitizedTarget != null && sanitizedTarget.isNotEmpty) 'targetLanguage': sanitizedTarget,
     };
 
     try {

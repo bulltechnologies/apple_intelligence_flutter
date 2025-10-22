@@ -7,8 +7,8 @@ import '../models/models.dart';
 /// reusable abstraction should additional request/response types be added in
 /// the future.
 class TextProcessingService {
-  TextProcessingService({AppleIntelligenceClient? client})
-      : _client = client ?? AppleIntelligenceClient.instance;
+  /// Creates a text processing service with an optional client instance.
+  TextProcessingService({AppleIntelligenceClient? client}) : _client = client ?? AppleIntelligenceClient.instance;
 
   final AppleIntelligenceClient _client;
 
@@ -17,8 +17,7 @@ class TextProcessingService {
   /// The same validation and error semantics as
   /// [AppleIntelligenceClient.sendPrompt] apply, but results are returned as a
   /// [TextProcessingResponse] for compatibility with the original API design.
-  Future<TextProcessingResponse> processText(
-      TextProcessingRequest request) async {
+  Future<TextProcessingResponse> processText(TextProcessingRequest request) async {
     try {
       return await _client.sendPrompt(
         prompt: request.text,
@@ -41,18 +40,22 @@ class TextProcessingService {
     }
   }
 
-  /// Create a streaming session that can be canceled explicitly.
-  AppleIntelligenceStreamSession streamTextSession(
-      TextProcessingRequest request) {
+  /// Creates a streaming session that can be canceled explicitly.
+  ///
+  /// Returns an [AppleIntelligenceStreamSession] that provides both a stream
+  /// of updates and a method to stop the request early.
+  AppleIntelligenceStreamSession streamTextSession(TextProcessingRequest request) {
     return _client.streamPromptSession(
       prompt: request.text,
       context: request.context,
     );
   }
 
-  /// Stream incremental updates as Apple Intelligence generates the response.
-  Stream<AppleIntelligenceStreamChunk> streamText(
-      TextProcessingRequest request) {
+  /// Streams incremental updates as Apple Intelligence generates the response.
+  ///
+  /// Returns a [Stream] of [AppleIntelligenceStreamChunk] objects containing
+  /// cumulative text, deltas, and completion status.
+  Stream<AppleIntelligenceStreamChunk> streamText(TextProcessingRequest request) {
     return streamTextSession(request).stream;
   }
 }

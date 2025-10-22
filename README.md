@@ -101,6 +101,31 @@ if (serviceResponse.success) {
 - **Responses**: Successful calls return `TextProcessingResponse` with `processedText` and metadata containing the latest availability snapshot.
 - **Streaming**: Use `AppleIntelligenceClient.streamPrompt` (or `TextProcessingService.streamText`) to receive `AppleIntelligenceStreamChunk` updates with cumulative and delta text. Reach for `streamPromptSession` / `streamTextSession` when you need to cancel mid-flight via `AppleIntelligenceStreamSession.stop()`.
 
+## Use cases
+
+`SystemLanguageModel` bundles tuned configurations for different tasks. Select them from Dart with `AppleIntelligenceUseCase` when you initialize, probe availability, or create additional sessions:
+
+```dart
+final client = AppleIntelligenceClient.instance;
+
+final availability = await client.initialize(
+  instructions: 'Tag the following messages with the right label.',
+  useCase: AppleIntelligenceUseCase.contentTagging,
+);
+
+final taggingReady = await client.isAvailable(
+  sessionId: availability.sessionId,
+  useCase: AppleIntelligenceUseCase.contentTagging,
+);
+
+final secondary = await client.createSession(
+  instructions: 'Summarise conversations.',
+  useCase: AppleIntelligenceUseCase.general,
+);
+```
+
+The active use case is mirrored in `AppleIntelligenceAvailability.useCase` and is included in all metadata payloads the plugin surfaces.
+
 ## Speech-to-text
 
 Transcribe an audio file with the `SpeechToTextService`:
@@ -144,6 +169,7 @@ debugPrint(translation.targetText); // "Hola mundo"
 - `code` – machine readable status (`available`, `model_not_ready`, `device_not_eligible`, etc.).
 - `reason` – short explanation suitable for user messaging.
 - `sessionReady` – `true` when an underlying `LanguageModelSession` is already created.
+- `useCase` – the canonical identifier for the active `SystemLanguageModel.UseCase`.
 
 All failures throw `AppleIntelligenceException`, exposing `code`, `message`, and optional native `details`. Generation errors bubble up messages from `FoundationModels` (for example, context window exceeded or guardrail violations).
 

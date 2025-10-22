@@ -52,6 +52,7 @@ Future<AppleIntelligenceAvailability> warmUpAppleIntelligence() async {
       You are a product assistant. Respond in short, factual sentences.
       Never invent personal data.
     ''',
+    useCase: AppleIntelligenceUseCase.general,
   );
 
   if (!availability.available) {
@@ -174,7 +175,30 @@ final subscription = chunks.listen(...);
 await subscription.cancel();
 ```
 
-## 9. Testing strategy
+## 9. Choose a use case
+
+Apple exposes tuned presets for different workloads via `SystemLanguageModel.UseCase`. Pick the one you need by setting the optional `useCase` argument on `initialize`, `isAvailable`, or `createSession`:
+
+```dart
+final tagging = await client.initialize(
+  instructions: 'Assign the correct taxonomy label to each entry.',
+  useCase: AppleIntelligenceUseCase.contentTagging,
+);
+
+final taggingReady = await client.isAvailable(
+  sessionId: tagging.sessionId,
+  useCase: AppleIntelligenceUseCase.contentTagging,
+);
+
+final summariser = await client.createSession(
+  instructions: 'Summarise customer chats into two bullet points.',
+  useCase: AppleIntelligenceUseCase.general,
+);
+```
+
+Every availability payload includes `useCase`, so you can reflect the chosen preset in telemetry or the UI.
+
+## 10. Testing strategy
 
 The package uses Flutter test bindings to mock the method channel. When writing your own tests:
 
@@ -190,15 +214,15 @@ setUp(() {
 
 Remember to clear handlers in `tearDown()` to avoid leakage between tests.
 
-## 10. Troubleshooting checklist
+## 11. Troubleshooting checklist
 
 - **Build fails with `FoundationModels` not found**: reopen the generated `.xcworkspace` and ensure Xcode uses an iOS 26 SDK.
 - **`generation_error`**: inspect `error.details` for `failureReason`. Often caused by exceeding context length or an unsupported locale.
 - **Nothing happens on prompt**: check `_availability.sessionReady`; if `false`, call `initialize` before sending prompts to warm up the session.
 
-## 11. Example app walkthrough
+## 12. Example app walkthrough
 
-## 12. Speech-to-text from local files
+## 13. Speech-to-text from local files
 
 Use the `SpeechToTextService` to convert audio recordings (MP3/WAV/M4A) into text. This relies on Apple’s Speech framework and requires iOS 15 or newer.
 

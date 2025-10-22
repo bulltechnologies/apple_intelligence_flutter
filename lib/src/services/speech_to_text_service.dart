@@ -4,11 +4,12 @@ import '../models/models.dart';
 import '../apple_intelligence_client.dart' show AppleIntelligenceException;
 
 /// Service that exposes iOS speech recognition via the platform channel.
+///
+/// This service provides access to iOS Speech framework capabilities for
+/// transcribing audio files into text with optional timing information.
 class SpeechToTextService {
-
-  /// Constructor for the SpeechToTextService.
-  SpeechToTextService({MethodChannel? channel})
-      : _channel = channel ?? const MethodChannel('apple_intelligence_flutter');
+  /// Creates a speech-to-text service with an optional method channel.
+  SpeechToTextService({MethodChannel? channel}) : _channel = channel ?? const MethodChannel('apple_intelligence_flutter');
 
   final MethodChannel _channel;
 
@@ -37,8 +38,7 @@ class SpeechToTextService {
         <String, dynamic>{
           'filePath': filePath,
           if (locale != null) 'locale': locale,
-          if (requiresOnDeviceRecognition != null)
-            'requiresOnDeviceRecognition': requiresOnDeviceRecognition,
+          if (requiresOnDeviceRecognition != null) 'requiresOnDeviceRecognition': requiresOnDeviceRecognition,
         },
       );
 

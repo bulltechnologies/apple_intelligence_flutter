@@ -18,10 +18,16 @@ class AppleIntelligenceException implements Exception {
     this.details,
   });
 
+  /// Short error code identifying the failure type.
   final String code;
+
+  /// Human-readable error message describing what went wrong.
   final String message;
+
+  /// Additional error details provided by the native platform, if any.
   final dynamic details;
 
+  /// Creates an [AppleIntelligenceException] from a Flutter [PlatformException].
   factory AppleIntelligenceException.fromPlatformException(
     PlatformException exception,
   ) {
@@ -51,14 +57,28 @@ class AppleIntelligenceAvailability {
     this.reason,
     this.sessionReady = false,
     this.sessionId = 'default',
+    this.useCase = AppleIntelligenceUseCase.general,
   });
 
+  /// Whether Apple Intelligence is available and ready to process requests.
   final bool available;
+
+  /// Platform-specific availability code for analytics or conditional logic.
   final String code;
+
+  /// Human-readable explanation of availability status, if provided.
   final String? reason;
+
+  /// Whether a cached session is ready to serve prompts immediately.
   final bool sessionReady;
+
+  /// Identifier of the session associated with this availability check.
   final String sessionId;
 
+  /// The use case configuration for this availability check.
+  final AppleIntelligenceUseCase useCase;
+
+  /// Creates an availability instance from platform channel response data.
   factory AppleIntelligenceAvailability.fromPlatformResponse(
     Map<String, dynamic>? response,
   ) {
@@ -76,18 +96,21 @@ class AppleIntelligenceAvailability {
       code: response['code'] as String? ?? 'unknown',
       reason: response['reason'] as String?,
       sessionReady: response['sessionReady'] as bool? ?? false,
-      sessionId: (response['sessionId'] as String?)?.trim().isNotEmpty == true
-          ? (response['sessionId'] as String)
-          : 'default',
+      sessionId: (response['sessionId'] as String?)?.trim().isNotEmpty == true ? (response['sessionId'] as String) : 'default',
+      useCase: AppleIntelligenceUseCase.resolve(
+        response['useCase'] as String?,
+      ),
     );
   }
 
+  /// Converts this availability instance to a JSON map.
   Map<String, dynamic> toJson() => {
         'available': available,
         'code': code,
         if (reason != null) 'reason': reason,
         'sessionReady': sessionReady,
         'sessionId': sessionId,
+        'useCase': useCase.toJson(),
       };
 }
 
@@ -102,15 +125,13 @@ class AppleIntelligenceClient {
 
   AppleIntelligenceClient._();
 
-  static const MethodChannel _channel =
-      MethodChannel('apple_intelligence_flutter');
-  static const EventChannel _streamChannel =
-      EventChannel('apple_intelligence_flutter/stream');
+  static const MethodChannel _channel = MethodChannel('apple_intelligence_flutter');
+  static const EventChannel _streamChannel = EventChannel('apple_intelligence_flutter/stream');
 
   AppleIntelligenceAvailability? _lastAvailability;
   String? _defaultSessionId;
 
-  /// Get singleton instance
+  /// Gets the singleton instance of the Apple Intelligence client.
   static AppleIntelligenceClient get instance {
     _instance ??= AppleIntelligenceClient._();
     return _instance!;
@@ -126,13 +147,13 @@ class AppleIntelligenceClient {
   Future<AppleIntelligenceAvailability> initialize({
     String? instructions,
     String? sessionId,
+    AppleIntelligenceUseCase? useCase,
   }) async {
     if (!_isPlatformSupported) {
       const availability = AppleIntelligenceAvailability(
         available: false,
         code: 'unsupported_platform',
-        reason:
-            'Apple Intelligence is currently available on iOS devices only.',
+        reason: 'Apple Intelligence is currently available on iOS devices only.',
         sessionId: 'default',
       );
       _lastAvailability = availability;
@@ -145,15 +166,13 @@ class AppleIntelligenceClient {
       final response = await _channel.invokeMapMethod<String, dynamic>(
         'initialize',
         <String, dynamic>{
-          if (sanitizedInstructions != null && sanitizedInstructions.isNotEmpty)
-            'instructions': sanitizedInstructions,
-          if (sanitizedSessionId != null && sanitizedSessionId.isNotEmpty)
-            'sessionId': sanitizedSessionId,
+          if (sanitizedInstructions != null && sanitizedInstructions.isNotEmpty) 'instructions': sanitizedInstructions,
+          if (sanitizedSessionId != null && sanitizedSessionId.isNotEmpty) 'sessionId': sanitizedSessionId,
+          if (useCase != null) 'useCase': useCase.toJson(),
         },
       );
 
-      final availability =
-          AppleIntelligenceAvailability.fromPlatformResponse(response);
+      final availability = AppleIntelligenceAvailability.fromPlatformResponse(response);
       _lastAvailability = availability;
       _defaultSessionId = availability.sessionId;
       return availability;
@@ -167,7 +186,10 @@ class AppleIntelligenceClient {
   /// This call triggers a lightweight availability probe on the host platform
   /// so it is safe to call during app start or before showing intelligence
   /// features.
-  Future<bool> isAvailable({String? sessionId}) async {
+  Future<bool> isAvailable({
+    String? sessionId,
+    AppleIntelligenceUseCase? useCase,
+  }) async {
     if (!_isPlatformSupported) {
       return false;
     }
@@ -177,12 +199,11 @@ class AppleIntelligenceClient {
       final response = await _channel.invokeMapMethod<String, dynamic>(
         'isAvailable',
         <String, dynamic>{
-          if (sanitizedSessionId != null && sanitizedSessionId.isNotEmpty)
-            'sessionId': sanitizedSessionId,
+          if (sanitizedSessionId != null && sanitizedSessionId.isNotEmpty) 'sessionId': sanitizedSessionId,
+          if (useCase != null) 'useCase': useCase.toJson(),
         },
       );
-      final availability =
-          AppleIntelligenceAvailability.fromPlatformResponse(response);
+      final availability = AppleIntelligenceAvailability.fromPlatformResponse(response);
       _lastAvailability = availability;
       return availability.available;
     } on PlatformException catch (e) {
@@ -206,8 +227,7 @@ class AppleIntelligenceClient {
     if (!_isPlatformSupported) {
       throw const AppleIntelligenceException(
         code: 'unsupported_platform',
-        message:
-            'Apple Intelligence is currently available on iOS devices only.',
+        message: 'Apple Intelligence is currently available on iOS devices only.',
       );
     }
 
@@ -226,8 +246,7 @@ class AppleIntelligenceClient {
     try {
       final response = await _channel.invokeMethod<String>('sendPrompt', {
         'prompt': sanitizedPrompt,
-        if (sanitizedContext != null && sanitizedContext.isNotEmpty)
-          'context': sanitizedContext,
+        if (sanitizedContext != null && sanitizedContext.isNotEmpty) 'context': sanitizedContext,
         if (optionsPayload != null) 'options': optionsPayload,
         'sessionId': resolvedSessionId,
       });
@@ -266,8 +285,7 @@ class AppleIntelligenceClient {
         controller.addError(
           const AppleIntelligenceException(
             code: 'unsupported_platform',
-            message:
-                'Apple Intelligence is currently available on iOS devices only.',
+            message: 'Apple Intelligence is currently available on iOS devices only.',
           ),
         );
         controller.close();
@@ -319,8 +337,7 @@ class AppleIntelligenceClient {
     final resolvedSessionId = _resolveSessionId(sessionId);
     final args = <String, dynamic>{
       'prompt': sanitizedPrompt,
-      if (sanitizedContext != null && sanitizedContext.isNotEmpty)
-        'context': sanitizedContext,
+      if (sanitizedContext != null && sanitizedContext.isNotEmpty) 'context': sanitizedContext,
       if (optionsPayload != null) 'options': optionsPayload,
       'sessionId': resolvedSessionId,
     };
@@ -420,9 +437,7 @@ class AppleIntelligenceClient {
       context: context,
       options: options,
       sessionId: sessionId,
-    )
-        .where((chunk) => chunk.cumulativeText != null)
-        .map((chunk) => chunk.cumulativeText!);
+    ).where((chunk) => chunk.cumulativeText != null).map((chunk) => chunk.cumulativeText!);
   }
 
   /// Last availability information reported by the host platform.
@@ -430,6 +445,8 @@ class AppleIntelligenceClient {
   /// Useful for debugging and providing richer UI without making an extra
   /// platform channel call.
   AppleIntelligenceAvailability? get lastAvailability => _lastAvailability;
+
+  /// The default session ID used when no explicit session is specified.
   String? get defaultSessionId => _defaultSessionId;
 
   bool get _isPlatformSupported {
@@ -442,12 +459,12 @@ class AppleIntelligenceClient {
   /// Creates a new session on the native side and returns its availability snapshot.
   Future<AppleIntelligenceAvailability> createSession({
     String? instructions,
+    AppleIntelligenceUseCase? useCase,
   }) async {
     if (!_isPlatformSupported) {
       throw const AppleIntelligenceException(
         code: 'unsupported_platform',
-        message:
-            'Apple Intelligence is currently available on iOS devices only.',
+        message: 'Apple Intelligence is currently available on iOS devices only.',
       );
     }
 
@@ -456,12 +473,11 @@ class AppleIntelligenceClient {
       final response = await _channel.invokeMapMethod<String, dynamic>(
         'createSession',
         <String, dynamic>{
-          if (sanitizedInstructions != null && sanitizedInstructions.isNotEmpty)
-            'instructions': sanitizedInstructions,
+          if (sanitizedInstructions != null && sanitizedInstructions.isNotEmpty) 'instructions': sanitizedInstructions,
+          if (useCase != null) 'useCase': useCase.toJson(),
         },
       );
-      final availability =
-          AppleIntelligenceAvailability.fromPlatformResponse(response);
+      final availability = AppleIntelligenceAvailability.fromPlatformResponse(response);
       _lastAvailability = availability;
       return availability;
     } on PlatformException catch (e) {
@@ -521,6 +537,10 @@ class AppleIntelligenceClient {
 }
 
 /// Represents an active streaming session that can be canceled on-demand.
+///
+/// This class wraps a stream controller and provides explicit control over
+/// the underlying native streaming request. Use [stop] to cancel the request
+/// and [stream] to receive incremental updates.
 class AppleIntelligenceStreamSession {
   AppleIntelligenceStreamSession._(
     this._controller,
@@ -553,6 +573,11 @@ class AppleIntelligenceStreamSession {
 }
 
 /// Represents a streaming update produced by Apple Intelligence.
+///
+/// Each chunk contains incremental text updates as the model generates a response.
+/// The [cumulativeText] contains the full response so far, while [delta] contains
+/// only the new text added in this update. When [isFinal] is true, the response
+/// is complete.
 class AppleIntelligenceStreamChunk {
   AppleIntelligenceStreamChunk({
     required this.isFinal,
@@ -561,6 +586,7 @@ class AppleIntelligenceStreamChunk {
     this.rawJson,
   });
 
+  /// Creates a stream chunk from a native platform event.
   factory AppleIntelligenceStreamChunk.fromNativeEvent(
     dynamic event, {
     required String previousText,
@@ -569,7 +595,7 @@ class AppleIntelligenceStreamChunk {
       return AppleIntelligenceStreamChunk(isFinal: true);
     }
 
-    final map = Map<String, dynamic>.from(event as Map);
+    final map = Map<String, dynamic>.from(event);
     final isFinal = map['done'] as bool? ?? false;
     final cumulativeText = map['cumulativeText'] as String?;
     final rawJson = map['raw'] as String?;
@@ -578,8 +604,7 @@ class AppleIntelligenceStreamChunk {
     String? delta;
     if (deltaFromNative != null && deltaFromNative.isNotEmpty) {
       delta = deltaFromNative;
-    } else if (cumulativeText != null &&
-        cumulativeText.startsWith(previousText)) {
+    } else if (cumulativeText != null && cumulativeText.startsWith(previousText)) {
       delta = cumulativeText.substring(previousText.length);
     } else {
       delta = cumulativeText;
@@ -593,8 +618,15 @@ class AppleIntelligenceStreamChunk {
     );
   }
 
+  /// Whether this is the final chunk in the streaming response.
   final bool isFinal;
+
+  /// The complete generated text up to this point in the stream.
   final String? cumulativeText;
+
+  /// The new text added in this specific update, if any.
   final String? delta;
+
+  /// Raw JSON payload from the native platform, if available.
   final String? rawJson;
 }

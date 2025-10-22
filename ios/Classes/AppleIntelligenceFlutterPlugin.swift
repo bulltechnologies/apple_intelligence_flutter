@@ -59,13 +59,15 @@ public class AppleIntelligenceFlutterPlugin: NSObject, FlutterPlugin {
             return
         }
 
-        let instructions = (arguments as? [String: Any])?["instructions"] as? String
-        let sessionId = (arguments as? [String: Any])?["sessionId"] as? String
+        let params = arguments as? [String: Any]
+        let instructions = params?["instructions"] as? String
+        let sessionId = params?["sessionId"] as? String
+        let useCase = params?["useCase"] as? String
 
         Task {
             do {
                 let manager = resolveSessionManager()
-                let initResult = try await manager.configure(with: instructions, sessionId: sessionId)
+                let initResult = try await manager.configure(with: instructions, sessionId: sessionId, useCaseIdentifier: useCase)
                 DispatchQueue.main.async {
                     result(initResult.asDictionary())
                 }
@@ -84,12 +86,21 @@ public class AppleIntelligenceFlutterPlugin: NSObject, FlutterPlugin {
             return
         }
 
+        let params = arguments as? [String: Any]
+        let sessionId = params?["sessionId"] as? String
+        let useCase = params?["useCase"] as? String
+
         Task {
-            let manager = resolveSessionManager()
-            let sessionId = (arguments as? [String: Any])?["sessionId"] as? String
-            let snapshot = await manager.availabilitySnapshot(sessionId: sessionId)
-            DispatchQueue.main.async {
-                result(snapshot.asDictionary())
+            do {
+                let manager = resolveSessionManager()
+                let snapshot = try await manager.availabilitySnapshot(sessionId: sessionId, useCaseIdentifier: useCase)
+                DispatchQueue.main.async {
+                    result(snapshot.asDictionary())
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    result(self.makeFlutterError(from: error))
+                }
             }
         }
     }
@@ -141,12 +152,14 @@ public class AppleIntelligenceFlutterPlugin: NSObject, FlutterPlugin {
             return
         }
 
-        let instructions = (arguments as? [String: Any])?["instructions"] as? String
+        let params = arguments as? [String: Any]
+        let instructions = params?["instructions"] as? String
+        let useCase = params?["useCase"] as? String
 
         Task {
             do {
                 let manager = resolveSessionManager()
-                let initResult = try await manager.createSession(with: instructions)
+                let initResult = try await manager.createSession(with: instructions, useCaseIdentifier: useCase)
                 DispatchQueue.main.async {
                     result(initResult.asDictionary())
                 }
